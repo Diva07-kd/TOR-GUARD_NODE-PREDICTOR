@@ -1,4 +1,4 @@
-﻿"""
+"""
 FastAPI Main Application - FIXED VERSION
 TOR Guard Node Predictor - TN Police Hackathon 2025
 """
@@ -10,23 +10,24 @@ import uvicorn
 
 from backend.core.model_loader import get_registry
 from backend.api import predict, health, explain, counterfactual, models
+from backend.api import tor_consensus
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events"""
-    print("🚀 Starting TOR Guard Predictor API...")
-    print("📦 Loading ML models...")
+    print("?? Starting TOR Guard Predictor API...")
+    print("?? Loading ML models...")
     try:
         registry = get_registry()
         registry.load_all_models()
-        print("✅ All models loaded successfully!")
+        print("? All models loaded successfully!")
     except Exception as e:
-        print(f"❌ Model loading failed: {e}")
+        print(f"? Model loading failed: {e}")
         raise
     
     yield
-    print("👋 Shutting down...")
+    print("?? Shutting down...")
 
 
 # Create FastAPI app
@@ -48,10 +49,15 @@ app.add_middleware(
 
 # Include routers
 app.include_router(health.router, tags=["Health"])
+app.include_router(tor_consensus.router, prefix="/api", tags=["TOR Network"])
 app.include_router(predict.router, tags=["Prediction"])
+app.include_router(tor_consensus.router, prefix="/api", tags=["TOR Network"])
 app.include_router(explain.router, tags=["Explainability"])
+app.include_router(tor_consensus.router, prefix="/api", tags=["TOR Network"])
 app.include_router(counterfactual.router, tags=["Counterfactual"])
+app.include_router(tor_consensus.router, prefix="/api", tags=["TOR Network"])
 app.include_router(models.router, tags=["Models"])
+app.include_router(tor_consensus.router, prefix="/api", tags=["TOR Network"])
 
 
 if __name__ == "__main__":
@@ -61,3 +67,4 @@ if __name__ == "__main__":
         port=8000,
         reload=False
     )
+

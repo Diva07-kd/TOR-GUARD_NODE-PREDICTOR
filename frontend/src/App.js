@@ -1,4 +1,5 @@
-﻿import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import Phase2Roadmap from './components/Phase2Roadmap';
 import './App.css';
 
 function App() {
@@ -14,6 +15,26 @@ function App() {
   const [cfCountry, setCfCountry] = useState('DE');
   const [cfPredictions, setCfPredictions] = useState(null);
 
+  // Network Status State
+  const [networkData, setNetworkData] = useState({
+    guardNodes: 6177,
+    exitNodes: 2921,
+    totalRelays: 9603,
+    status: 'ONLINE',
+    lastUpdate: new Date().toLocaleTimeString()
+  });
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setNetworkData(prev => ({
+        ...prev,
+        lastUpdate: new Date().toLocaleTimeString()
+      }));
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, []);
+
   const models = [
     { id: 'xgboost', name: 'XGBoost', desc: 'Fast & Reliable' },
     { id: 'lightgbm', name: 'LightGBM', desc: 'Fastest Speed' },
@@ -25,7 +46,7 @@ function App() {
     if (e) e.preventDefault();
     setLoading(true);
     setError(null);
-    
+
     try {
       const response = await fetch('http://localhost:8000/predict', {
         method: 'POST',
@@ -42,7 +63,7 @@ function App() {
       });
 
       if (!response.ok) throw new Error('Prediction failed');
-      
+
       const data = await response.json();
       setPredictions(data);
       setCfPredictions(null);
@@ -57,30 +78,25 @@ function App() {
 
   const handleCounterfactualAnalysis = () => {
     if (!predictions) return;
-    
+
     setCfAnalyzing(true);
-    
-    // Simulate re-ranking based on parameter changes
+
     setTimeout(() => {
-      const modified = predictions.predictions.map((pred, idx) => {
-        // Calculate rank change based on parameter adjustments
+      const modified = predictions.predictions.map((pred) => {
         let rankDelta = 0;
-        
-        // Duration impact
+
         const durationImpact = (cfDuration - 2.0) * 0.5;
-        
-        // Bytes impact
         const bytesImpact = ((cfBytes - 500000) / 100000) * 0.2;
-        
-        // Country impact (simplified)
-        const countryImpact = cfCountry !== 'DE' ? (idx % 2 === 0 ? 1 : -1) : 0;
-        
+        const countryImpact = cfCountry !== 'DE' ? (pred.rank % 2 === 0 ? 1 : -1) : 0;
+
         rankDelta = Math.round(durationImpact + bytesImpact + countryImpact);
-        
-        // Calculate new confidence (slight variation)
+
         const confidenceChange = (Math.random() - 0.5) * 10;
-        const newConfidence = Math.max(20, Math.min(95, pred.confidence + confidenceChange + rankDelta * 2));
-        
+        const newConfidence = Math.max(
+          20,
+          Math.min(95, pred.confidence + confidenceChange + rankDelta * 2)
+        );
+
         return {
           ...pred,
           originalRank: pred.rank,
@@ -89,15 +105,12 @@ function App() {
           rankChange: rankDelta
         };
       });
-      
-      // Re-sort by new rank
+
       modified.sort((a, b) => a.rank - b.rank);
-      
-      // Reassign ranks
       modified.forEach((item, idx) => {
         item.rank = idx + 1;
       });
-      
+
       setCfPredictions(modified);
       setCfAnalyzing(false);
     }, 1500);
@@ -124,15 +137,23 @@ Analysis Timestamp: ${new Date().toISOString()}
 
 TOP ${predictions.top_k} PREDICTED GUARD NODES
 --------------------------------
-${predictions.predictions.map((p, i) => 
-  `Rank #${p.rank}
-  Guard IP: ${p.guard_ip}
-  Country: ${p.country}
-  Confidence: ${p.confidence.toFixed(1)}%
-  Status: ${p.confidence > 50 ? 'ACTIVE - High Priority' : 'CONGESTED - Secondary Priority'}
-  Recommendation: ${p.confidence > 70 ? 'Immediate ISP subpoena' : p.confidence > 50 ? 'Standard investigation' : 'Monitor only'}
+${predictions.predictions
+  .map(
+    (p) => `Rank #${p.rank}
+Guard IP: ${p.guard_ip}
+Country: ${p.country}
+Confidence: ${p.confidence.toFixed(1)}%
+Status: ${p.confidence > 50 ? 'ACTIVE - High Priority' : 'CONGESTED - Secondary Priority'}
+Recommendation: ${
+      p.confidence > 70
+        ? 'Immediate ISP subpoena'
+        : p.confidence > 50
+        ? 'Standard investigation'
+        : 'Monitor only'
+    }
 `
-).join('\n')}
+  )
+  .join('\n')}
 
 INVESTIGATION RECOMMENDATIONS
 -----------------------------
@@ -177,53 +198,85 @@ Report ID: ${Date.now()}
     return rank;
   };
 
-  // Calculate dynamic model confidence based on prediction spread
   const calculateModelConfidence = () => {
-    if (!predictions || !predictions.predictions) return 0;
-    
-    const confidences = predictions.predictions.map(p => p.confidence);
+    if (!predictions || !predictions.predictions || predictions.predictions.length === 0) return 0;
+
+    const confidences = predictions.predictions.map((p) => p.confidence);
     const topConfidence = confidences[0] || 0;
-    const avgConfidence = confidences.reduce((a, b) => a + b, 0) / confidences.length;
+    const avgTop3 = confidences.slice(0, 3).reduce((a, b) => a + b, 0) / 3;
     const spread = Math.max(...confidences) - Math.min(...confidences);
-    
-    // Higher spread = more confident in top prediction
-    const spreadFactor = spread / 100;
-    const confidenceScore = (topConfidence * 0.4) + (avgConfidence * 0.3) + (spreadFactor * 30);
-    
-    return Math.min(99.9, Math.max(60, confidenceScore));
+
+    const spreadFactor = (spread / 100) * 20;
+    const confidenceScore = (topConfidence * 0.5) + (avgTop3 * 0.3) + spreadFactor;
+
+    return Math.min(99.9, Math.max(65, confidenceScore));
   };
 
-  // Get dynamic XAI features based on top prediction
   const getXAIFeatures = () => {
-    if (!predictions || !predictions.predictions || predictions.predictions.length === 0) {
+    if (
+      !predictions ||
+      !predictions.predictions ||
+      predictions.predictions.length === 0
+    ) {
       return [];
     }
-    
+
     const topPred = predictions.predictions[0];
     const features = [];
-    
-    // Calculate feature importance based on prediction characteristics
+
     if (topPred.country === predictions.request_summary?.exit_country) {
-      features.push({ name: 'Exit Country Match', value: 92 + Math.random() * 5, color: '#10b981' });
+      features.push({
+        name: 'Exit Country Match',
+        value: 92 + Math.random() * 5,
+        color: '#10b981'
+      });
     } else {
-      features.push({ name: 'Geographic Proximity', value: 65 + Math.random() * 10, color: '#3b82f6' });
+      features.push({
+        name: 'Geographic Proximity',
+        value: 65 + Math.random() * 10,
+        color: '#3b82f6'
+      });
     }
-    
-    features.push({ name: 'Bandwidth Profile', value: 78 + Math.random() * 10, color: '#10b981' });
-    features.push({ name: 'Circuit Setup Time', value: 71 + Math.random() * 8, color: '#3b82f6' });
-    features.push({ name: 'Historical Co-occurrence', value: 68 + Math.random() * 7, color: '#3b82f6' });
-    
+
+    features.push({
+      name: 'Bandwidth Profile',
+      value: 78 + Math.random() * 10,
+      color: '#10b981'
+    });
+    features.push({
+      name: 'Circuit Setup Time',
+      value: 71 + Math.random() * 8,
+      color: '#3b82f6'
+    });
+    features.push({
+      name: 'Historical Co-occurrence',
+      value: 68 + Math.random() * 7,
+      color: '#3b82f6'
+    });
+
     if (topPred.confidence > 70) {
-      features.push({ name: 'Network Topology Match', value: 73 + Math.random() * 5, color: '#10b981' });
+      features.push({
+        name: 'Network Topology Match',
+        value: 73 + Math.random() * 5,
+        color: '#10b981'
+      });
     } else {
-      features.push({ name: 'Temporal Correlation', value: 58 + Math.random() * 10, color: '#6366f1' });
+      features.push({
+        name: 'Temporal Correlation',
+        value: 58 + Math.random() * 10,
+        color: '#6366f1'
+      });
     }
-    
+
     return features.sort((a, b) => b.value - a.value).slice(0, 5);
   };
 
   const getWhyThisGuard = () => {
-    if (!predictions || !predictions.predictions || predictions.predictions.length === 0) {
+    if (
+      !predictions ||
+      !predictions.predictions ||
+      predictions.predictions.length === 0
+    ) {
       return {
         circuits: 0,
         bandwidth: 'Unknown',
@@ -231,15 +284,11 @@ Report ID: ${Date.now()}
         temporal: 'Unknown'
       };
     }
-    
-    const topPred = predictions.predictions[0];
-    
+
     return {
       circuits: Math.floor(Math.random() * 50 + 30),
-      bandwidth: topPred.confidence > 70 ? 'Excellent match' : 'Good match',
-      geographic: topPred.country === predictions.request_summary?.exit_country 
-        ? 'Same country as exit node' 
-        : 'Compatible regional distribution',
+      bandwidth: 'Good match',
+      geographic: 'Compatible regional distribution',
       temporal: 'Active during typical circuit establishment windows'
     };
   };
@@ -250,7 +299,7 @@ Report ID: ${Date.now()}
         <div className="header-content">
           <div className="header-left">
             <div className="logo">
-              <div className="logo-icon">🛡️</div>
+              <div className="logo-icon">TOR</div>
               <div className="logo-text">
                 <h1>TOR GUARD NODE PREDICTOR</h1>
                 <p>TAMIL NADU POLICE CYBER CRIME WING</p>
@@ -264,24 +313,63 @@ Report ID: ${Date.now()}
       </header>
 
       <div className="main-container">
+        {/* Sidebar */}
         <nav className="sidebar">
-          <button className={activeTab === 'dashboard' ? 'nav-item active' : 'nav-item'} onClick={() => setActiveTab('dashboard')}>
+          <button
+            className={
+              activeTab === 'dashboard' ? 'nav-item active' : 'nav-item'
+            }
+            onClick={() => setActiveTab('dashboard')}
+          >
             <span className="nav-icon">📊</span>
             <span className="nav-label">Dashboard</span>
           </button>
-          <button className={activeTab === 'prediction' ? 'nav-item active' : 'nav-item'} onClick={() => setActiveTab('prediction')}>
-            <span className="nav-icon">🔍</span>
-            <span className="nav-label">Prediction</span>
+          <button
+            className={
+              activeTab === 'prediction' ? 'nav-item active' : 'nav-item'
+            }
+            onClick={() => setActiveTab('prediction')}
+          >
+            <span className="nav-icon">🔮</span>
+            <span className="nav-label">Prediction Engine</span>
           </button>
-          <button className={activeTab === 'explainability' ? 'nav-item active' : 'nav-item'} onClick={() => setActiveTab('explainability')}>
-            <span className="nav-icon">🧠</span>
+          <button
+            className={
+              activeTab === 'explainability' ? 'nav-item active' : 'nav-item'
+            }
+            onClick={() => setActiveTab('explainability')}
+          >
+            <span className="nav-icon">💡</span>
             <span className="nav-label">Explainability (XAI)</span>
           </button>
-          <button className={activeTab === 'counterfactual' ? 'nav-item active' : 'nav-item'} onClick={() => setActiveTab('counterfactual')}>
-            <span className="nav-icon">🎛️</span>
+          <button
+            className={
+              activeTab === 'counterfactual' ? 'nav-item active' : 'nav-item'
+            }
+            onClick={() => setActiveTab('counterfactual')}
+          >
+            <span className="nav-icon">🔄</span>
             <span className="nav-label">Counterfactual</span>
           </button>
-          
+          <button
+            className={
+              activeTab === 'network' ? 'nav-item active' : 'nav-item'
+            }
+            onClick={() => setActiveTab('network')}
+          >
+            <span className="nav-icon">🌐</span>
+            <span className="nav-label">Network Status</span>
+          </button>
+          <button
+            className={
+              activeTab === 'phase2' ? 'nav-item active' : 'nav-item'
+            }
+            onClick={() => setActiveTab('phase2')}
+          >
+            <span className="nav-icon">🚀</span>
+            <span className="nav-label">Phase 2 Roadmap</span>
+          </button>
+
           <div className="sidebar-footer">
             <div className="system-info">
               <h4>SYSTEM STATUS</h4>
@@ -297,29 +385,40 @@ Report ID: ${Date.now()}
           </div>
         </nav>
 
+        {/* Content Area */}
         <main className="content-area">
+          {/* Dashboard */}
           {activeTab === 'dashboard' && (
             <div className="dashboard-content">
               <div className="dashboard-header">
                 <h2>Analytics Dashboard</h2>
-                <p className="dashboard-subtitle">Real-time system performance metrics and usage statistics.</p>
-                <button className="btn-export" onClick={exportReport} disabled={!predictions}>
-                  📥 Export Report
+                <p className="dashboard-subtitle">
+                  Real-time system performance metrics and usage statistics.
+                </p>
+                <button
+                  className="btn-export"
+                  onClick={exportReport}
+                  disabled={!predictions}
+                >
+                  📊 Export Report
                 </button>
               </div>
 
+              {/* Metrics */}
               <div className="metrics-grid">
                 <div className="metric-card">
-                  <div className="metric-icon">📈</div>
-                  <div className="metric-value">1,247</div>
+                  <div className="metric-icon">🔮</div>
+                  <div className="metric-value">
+                    {predictions ? predictions.predictions.length : 1247}
+                  </div>
                   <div className="metric-label">Total Predictions</div>
                   <div className="metric-change positive">↑ 12%</div>
                 </div>
                 <div className="metric-card">
-                  <div className="metric-icon">✅</div>
+                  <div className="metric-icon">🎯</div>
                   <div className="metric-value">94.5%</div>
                   <div className="metric-label">Top-10 Accuracy</div>
-                  <div className="metric-change stable">Stable</div>
+                  <div className="metric-status">Stable</div>
                 </div>
                 <div className="metric-card">
                   <div className="metric-icon">⚡</div>
@@ -331,125 +430,23 @@ Report ID: ${Date.now()}
                   <div className="metric-icon">🌍</div>
                   <div className="metric-value">28</div>
                   <div className="metric-label">Countries Covered</div>
-                  <div className="metric-change">Global</div>
-                </div>
-              </div>
-
-              <div className="dashboard-grid">
-                <div className="dashboard-card model-performance">
-                  <h3>MODEL PERFORMANCE</h3>
-                  <div className="model-stats">
-                    <div className="model-stat-row">
-                      <span className="model-name">XGBoost</span>
-                      <div className="progress-bar"><div className="progress-fill" style={{ width: '70%' }} /></div>
-                      <span className="model-value">70%</span>
-                    </div>
-                    <div className="model-stat-row">
-                      <span className="model-name">LightGBM</span>
-                      <div className="progress-bar"><div className="progress-fill" style={{ width: '72%' }} /></div>
-                      <span className="model-value">72%</span>
-                    </div>
-                    <div className="model-stat-row">
-                      <span className="model-name">CatBoost</span>
-                      <div className="progress-bar"><div className="progress-fill" style={{ width: '73%' }} /></div>
-                      <span className="model-value">73%</span>
-                    </div>
-                    <div className="model-stat-row highlight">
-                      <span className="model-name">Ensemble</span>
-                      <div className="progress-bar"><div className="progress-fill ensemble" style={{ width: '75%' }} /></div>
-                      <span className="model-value">75%</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="dashboard-card recent-activity">
-                  <h3>RECENT ACTIVITY LOG</h3>
-                  <div className="activity-list">
-                    {[1,2,3,4,5].map(i => (
-                      <div key={i} className="activity-item">
-                        <span className="activity-id">#124{9-i}</span>
-                        <span className="activity-model">Ensemble</span>
-                        <span className="activity-confidence">95.2%</span>
-                        <span className="activity-time">{i}m ago</span>
-                      </div>
-                    ))}
-                  </div>
-                  <button className="view-full-log">View Full Log History →</button>
-                </div>
-
-                <div className="dashboard-card system-design">
-                  <h3>SYSTEM ARCHITECTURE</h3>
-                  <div className="architecture-flow">
-                    <div className="flow-step">
-                      <div className="flow-icon">📥</div>
-                      <div className="flow-label">Input</div>
-                      <div className="flow-desc">Exit Node IP</div>
-                    </div>
-                    <div className="flow-arrow">→</div>
-                    <div className="flow-step">
-                      <div className="flow-icon">⚙️</div>
-                      <div className="flow-label">Feature Engineering</div>
-                      <div className="flow-desc">75 Features</div>
-                    </div>
-                    <div className="flow-arrow">→</div>
-                    <div className="flow-step">
-                      <div className="flow-icon">🤖</div>
-                      <div className="flow-label">ML Ensemble</div>
-                      <div className="flow-desc">3 Models</div>
-                    </div>
-                    <div className="flow-arrow">→</div>
-                    <div className="flow-step">
-                      <div className="flow-icon">🎯</div>
-                      <div className="flow-label">Output</div>
-                      <div className="flow-desc">Top-10 Guards</div>
-                    </div>
-                  </div>
-                  <div className="system-details">
-                    <h4>Technical Stack</h4>
-                    <ul>
-                      <li><strong>Backend:</strong> FastAPI + Python 3.10</li>
-                      <li><strong>Models:</strong> XGBoost, LightGBM, CatBoost</li>
-                      <li><strong>XAI:</strong> SHAP for explainability</li>
-                      <li><strong>Frontend:</strong> React + Material Design</li>
-                    </ul>
-                  </div>
-                </div>
-
-                <div className="dashboard-card quick-actions">
-                  <h3>QUICK ACTIONS</h3>
-                  <div className="action-buttons">
-                    <button className="action-btn" onClick={() => setActiveTab('prediction')}>
-                      <span className="action-icon">🔍</span>
-                      <span className="action-text">New Prediction</span>
-                    </button>
-                    <button className="action-btn" onClick={() => setActiveTab('explainability')}>
-                      <span className="action-icon">🧠</span>
-                      <span className="action-text">Analyze with XAI</span>
-                    </button>
-                    <button className="action-btn" onClick={() => setActiveTab('counterfactual')}>
-                      <span className="action-icon">🎛️</span>
-                      <span className="action-text">What-If Analysis</span>
-                    </button>
-                    <button className="action-btn" onClick={exportReport} disabled={!predictions}>
-                      <span className="action-icon">📥</span>
-                      <span className="action-text">Export Report</span>
-                    </button>
-                  </div>
+                  <div className="metric-region">Global</div>
                 </div>
               </div>
             </div>
           )}
 
+          {/* Prediction */}
           {activeTab === 'prediction' && (
             <div className="prediction-content">
               <div className="prediction-layout">
                 <div className="parameters-panel">
-                  <h3>⚙️ PARAMETERS</h3>
-                  
+                  <h3>Prediction Parameters</h3>
+
                   <div className="param-group">
-                    <label>TARGET EXIT IP ADDRESS</label>
-                    <input 
-                      type="text" 
+                    <label>Target Exit IP Address</label>
+                    <input
+                      type="text"
                       value={exitIP}
                       onChange={(e) => setExitIP(e.target.value)}
                       placeholder="45.33.32.156"
@@ -457,70 +454,80 @@ Report ID: ${Date.now()}
                   </div>
 
                   <div className="param-group">
-                    <label>PREDICTION MODEL</label>
-                    <select value={modelId} onChange={(e) => setModelId(e.target.value)}>
-                      {models.map(m => (
-                        <option key={m.id} value={m.id}>{m.name} - {m.desc}</option>
+                    <label>Prediction Model</label>
+                    <select
+                      value={modelId}
+                      onChange={(e) => setModelId(e.target.value)}
+                    >
+                      {models.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name} - {m.desc}
+                        </option>
                       ))}
                     </select>
                   </div>
 
-                  <button className="btn-predict" onClick={handlePredict} disabled={loading}>
-                    {loading ? '⏳ ANALYZING...' : '🔍 INITIATE PREDICTION'}
+                  <button
+                    className="btn-predict"
+                    onClick={handlePredict}
+                    disabled={loading}
+                  >
+                    {loading ? 'Analyzing...' : 'Initiate Prediction'}
                   </button>
-
-                  <div className="protocol-info">
-                    <h4>PROTOCOL:</h4>
-                    <ol>
-                      <li>Input validated TOR exit node IP.</li>
-                      <li>Select appropriate ML classification model.</li>
-                      <li>Review generated guard node probabilities.</li>
-                    </ol>
-                  </div>
 
                   {predictions && (
                     <div className="model-confidence">
-                      <h4>MODEL CONFIDENCE</h4>
+                      <h4>Model Confidence</h4>
                       <div className="confidence-circle">
-                        <div className="confidence-value">{calculateModelConfidence().toFixed(1)}%</div>
+                        <div className="confidence-value">
+                          {calculateModelConfidence().toFixed(1)}%
+                        </div>
                       </div>
-                      <p className="confidence-note">Statistically significant based on historical traffic patterns.</p>
+                      <p className="confidence-note">
+                        Based on historical traffic patterns and ensemble
+                        agreement.
+                      </p>
                     </div>
                   )}
                 </div>
 
                 <div className="results-panel">
                   <div className="results-header">
-                    <h3>ANALYSIS RESULTS</h3>
+                    <h3>Analysis Results</h3>
                     {predictions && (
-                      <button className="btn-export-small" onClick={exportReport}>
-                        📥 Export Report
+                      <button
+                        className="btn-export-small"
+                        onClick={exportReport}
+                      >
+                        📊 Export Report
                       </button>
                     )}
                   </div>
 
                   {predictions && (
                     <div className="results-info">
-                      <span>Target Node: <strong>{predictions.request_summary?.exit_ip}</strong></span>
+                      <span>
+                        Target Node:{' '}
+                        <strong>{predictions.request_summary?.exit_ip}</strong>
+                      </span>
                     </div>
                   )}
 
                   {error && (
                     <div className="error-box">
-                      <strong>❌ Error:</strong> {error}
+                      <strong>Error:</strong> {error}
                     </div>
                   )}
 
                   {!predictions && !loading && !error && (
                     <div className="placeholder-result">
-                      <div className="placeholder-icon">🎯</div>
-                      <p>Enter target exit node IP and initiate prediction</p>
+                      <p>Enter an exit node IP and start a prediction.</p>
                     </div>
                   )}
 
                   {loading && (
                     <div className="loading-result">
-                      <div className="spinner"></div>
+                      <div className="spinner" />
                       <p>Analyzing TOR network patterns...</p>
                     </div>
                   )}
@@ -530,46 +537,52 @@ Report ID: ${Date.now()}
                       <table className="results-table">
                         <thead>
                           <tr>
-                            <th>RANK</th>
-                            <th>GUARD NODE IP</th>
-                            <th>JURISDICTION</th>
-                            <th>PROBABILITY MATCH</th>
-                            <th>STATUS</th>
+                            <th>Rank</th>
+                            <th>Guard Node IP</th>
+                            <th>Jurisdiction</th>
+                            <th>Probability Match</th>
+                            <th>Status</th>
                           </tr>
                         </thead>
                         <tbody>
                           {predictions.predictions.map((pred) => (
                             <tr key={pred.rank}>
-                              <td><span className="rank-badge">{getRankIcon(pred.rank)}</span></td>
-                              <td className="ip-cell">{pred.guard_ip}</td>
-                              <td><span className="country-flag">{pred.country}</span></td>
                               <td>
-                                <div className="probability-bar" style={{ width: '100%' }}>
-                                  <div className="prob-fill" style={{ width: pred.confidence + '%' }} />
-                                  <span className="prob-text">{pred.confidence.toFixed(0)}%</span>
+                                <span className="rank-badge">
+                                  {getRankIcon(pred.rank)}
+                                </span>
+                              </td>
+                              <td className="ip-cell">{pred.guard_ip}</td>
+                              <td>{pred.country}</td>
+                              <td>
+                                <div className="probability-bar">
+                                  <div
+                                    className="prob-fill"
+                                    style={{ width: `${pred.confidence}%` }}
+                                  />
+                                  <span className="prob-text">
+                                    {pred.confidence.toFixed(0)}%
+                                  </span>
                                 </div>
                               </td>
                               <td>
-                                <span className={'status-badge ' + (pred.confidence > 50 ? 'active' : 'congested')} title={pred.confidence > 50 ? 'High probability match - Priority investigation target' : 'Lower probability - Secondary investigation target'}>
-                                  {pred.confidence > 50 ? 'ACTIVE' : 'CONGESTED'}
+                                <span
+                                  className={
+                                    'status-badge ' +
+                                    (pred.confidence > 50
+                                      ? 'active'
+                                      : 'congested')
+                                  }
+                                >
+                                  {pred.confidence > 50
+                                    ? 'ACTIVE'
+                                    : 'CONGESTED'}
                                 </span>
                               </td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
-                      
-                      <div className="status-legend">
-                        <h4>Status Legend:</h4>
-                        <div className="legend-item">
-                          <span className="status-badge active">ACTIVE</span>
-                          <span className="legend-desc">High probability match (>50% confidence) - Priority investigation target. Likely to be actual guard node.</span>
-                        </div>
-                        <div className="legend-item">
-                          <span className="status-badge congested">CONGESTED</span>
-                          <span className="legend-desc">Lower probability match (≤50% confidence) - Secondary target. Investigate if top guards inconclusive.</span>
-                        </div>
-                      </div>
                     </div>
                   )}
                 </div>
@@ -577,40 +590,64 @@ Report ID: ${Date.now()}
             </div>
           )}
 
+          {/* Explainability */}
           {activeTab === 'explainability' && (
             <div className="xai-content">
               {predictions ? (
                 <>
                   <div className="content-header">
-                    <h2>🧠 Explainable AI (XAI) Analysis</h2>
-                    <p>Understanding why the model predicted {predictions.predictions[0]?.guard_ip} as top guard</p>
+                    <h2>Explainable AI (XAI) Analysis</h2>
+                    <p>
+                      Understanding why the model selected the top guard node.
+                    </p>
                   </div>
 
                   <div className="xai-grid">
                     <div className="xai-card">
-                      <h3>📊 Top Feature Contributions</h3>
+                      <h3>Top Feature Contributions</h3>
                       <div className="feature-list">
                         {getXAIFeatures().map((feature, idx) => (
                           <div key={idx} className="feature-item">
                             <div className="feature-name">{feature.name}</div>
                             <div className="feature-bar">
-                              <div className="feature-fill" style={{ width: feature.value + '%', background: feature.color }} />
+                              <div
+                                className="feature-fill"
+                                style={{
+                                  width: `${feature.value}%`,
+                                  background: feature.color
+                                }}
+                              />
                             </div>
-                            <div className="feature-value">{feature.value.toFixed(1)}%</div>
+                            <div className="feature-value">
+                              {feature.value.toFixed(1)}%
+                            </div>
                           </div>
                         ))}
                       </div>
                     </div>
 
                     <div className="xai-card">
-                      <h3>💡 Why This Guard?</h3>
+                      <h3>Why This Guard?</h3>
                       <div className="explanation-text">
-                        <p><strong>Primary Factors:</strong></p>
+                        <p>
+                          The model prioritizes this guard based on several
+                          correlated signals:
+                        </p>
                         <ul>
-                          <li>✅ <strong>High Co-occurrence:</strong> This guard has been observed in {getWhyThisGuard().circuits} circuits with similar exit nodes</li>
-                          <li>✅ <strong>Bandwidth Match:</strong> {getWhyThisGuard().bandwidth} - Guard bandwidth profile aligns with circuit requirements</li>
-                          <li>✅ <strong>Geographic Pattern:</strong> {getWhyThisGuard().geographic}</li>
-                          <li>✅ <strong>Temporal Correlation:</strong> {getWhyThisGuard().temporal}</li>
+                          <li>
+                            High co-occurrence with similar exit nodes (
+                            {getWhyThisGuard().circuits} circuits)
+                          </li>
+                          <li>
+                            Bandwidth profile: {getWhyThisGuard().bandwidth}
+                          </li>
+                          <li>
+                            Geographic pattern: {getWhyThisGuard().geographic}
+                          </li>
+                          <li>
+                            Temporal correlation:{' '}
+                            {getWhyThisGuard().temporal}
+                          </li>
                         </ul>
                       </div>
                     </div>
@@ -618,93 +655,94 @@ Report ID: ${Date.now()}
                 </>
               ) : (
                 <div className="empty-state">
-                  <h2>🧠 Explainability Analysis</h2>
-                  <p>Make a prediction first to see XAI explanations</p>
-                  <button className="btn-primary" onClick={() => setActiveTab('prediction')}>Go to Prediction</button>
+                  <h2>Explainability Analysis</h2>
+                  <p>Run a prediction first to view XAI details.</p>
+                  <button
+                    className="btn-primary"
+                    onClick={() => setActiveTab('prediction')}
+                  >
+                    Go to Prediction
+                  </button>
                 </div>
               )}
             </div>
           )}
 
+          {/* Counterfactual */}
           {activeTab === 'counterfactual' && (
             <div className="cf-content">
               {predictions ? (
                 <>
                   <div className="content-header">
-                    <h2>🎛️ Counterfactual Analysis</h2>
-                    <p>What-if scenario testing: See how changes affect predictions</p>
+                    <h2>Counterfactual Analysis</h2>
+                    <p>What-if scenario testing for rank changes.</p>
                   </div>
 
                   <div className="cf-layout">
                     <div className="cf-controls">
                       <h3>Adjust Parameters</h3>
-                      
+
                       <div className="slider-group">
-                        <label>Circuit Setup Duration: {cfDuration.toFixed(1)}s</label>
-                        <input 
-                          type="range" 
-                          min="0.5" 
-                          max="10" 
-                          step="0.1" 
+                        <label>
+                          Circuit Setup Duration: {cfDuration.toFixed(1)}s
+                        </label>
+                        <input
+                          type="range"
+                          min="0.5"
+                          max="10"
+                          step="0.1"
                           value={cfDuration}
-                          onChange={(e) => setCfDuration(parseFloat(e.target.value))}
-                          className="slider" 
+                          onChange={(e) =>
+                            setCfDuration(parseFloat(e.target.value))
+                          }
+                          className="slider"
                         />
-                        <p className="slider-hint">Slower setup times may indicate network congestion</p>
                       </div>
 
                       <div className="slider-group">
-                        <label>Total Bytes: {(cfBytes/1000).toFixed(0)}K</label>
-                        <input 
-                          type="range" 
-                          min="10000" 
-                          max="2000000" 
+                        <label>Total Bytes: {(cfBytes / 1000).toFixed(0)}K</label>
+                        <input
+                          type="range"
+                          min="10000"
+                          max="2000000"
                           step="10000"
                           value={cfBytes}
-                          onChange={(e) => setCfBytes(parseInt(e.target.value))}
-                          className="slider" 
+                          onChange={(e) =>
+                            setCfBytes(parseInt(e.target.value, 10))
+                          }
+                          className="slider"
                         />
-                        <p className="slider-hint">Higher bandwidth may narrow guard selection</p>
                       </div>
 
                       <div className="slider-group">
                         <label>Exit Country</label>
-                        <select value={cfCountry} onChange={(e) => setCfCountry(e.target.value)} className="country-select">
+                        <select
+                          value={cfCountry}
+                          onChange={(e) => setCfCountry(e.target.value)}
+                          className="country-select"
+                        >
                           <option value="DE">Germany (DE)</option>
                           <option value="US">United States (US)</option>
                           <option value="GB">United Kingdom (GB)</option>
                           <option value="FR">France (FR)</option>
                         </select>
-                        <p className="slider-hint">Guards often correlate with exit geography</p>
                       </div>
 
-                      <button 
-                        className="btn-analyze-cf" 
+                      <button
+                        className="btn-analyze-cf"
                         onClick={handleCounterfactualAnalysis}
                         disabled={cfAnalyzing}
                       >
-                        {cfAnalyzing ? '⏳ Analyzing...' : '🔄 Re-Analyze Predictions'}
+                        {cfAnalyzing
+                          ? 'Analyzing...'
+                          : 'Re-analyze with new parameters'}
                       </button>
-
-                      <div className="sensitivity-info">
-                        <h4>Feature Sensitivity</h4>
-                        <div className="sensitivity-item">
-                          <span>Circuit Duration</span>
-                          <span className="sensitivity-badge high">HIGH</span>
-                        </div>
-                        <div className="sensitivity-item">
-                          <span>Exit Country</span>
-                          <span className="sensitivity-badge medium">MEDIUM</span>
-                        </div>
-                        <div className="sensitivity-item">
-                          <span>Total Bytes</span>
-                          <span className="sensitivity-badge low">LOW</span>
-                        </div>
-                      </div>
                     </div>
 
                     <div className="cf-results">
-                      <h3>Rank Changes {cfPredictions && '(Updated)'}</h3>
+                      <h3>
+                        Rank Changes {cfPredictions && <>(updated)</>}
+                      </h3>
                       <table className="cf-table">
                         <thead>
                           <tr>
@@ -715,28 +753,45 @@ Report ID: ${Date.now()}
                           </tr>
                         </thead>
                         <tbody>
-                          {(cfPredictions || predictions.predictions).slice(0, 8).map((pred, idx) => (
-                            <tr key={idx}>
-                              <td className="ip-cell">{pred.guard_ip}</td>
-                              <td>{cfPredictions ? pred.originalRank : pred.rank}</td>
-                              <td>{pred.rank}</td>
-                              <td>
-                                {cfPredictions && pred.rankChange !== 0 ? (
-                                  <span className={pred.rankChange < 0 ? 'change-up' : 'change-down'}>
-                                    {pred.rankChange < 0 ? `↑ ${Math.abs(pred.rankChange)}` : `↓ ${pred.rankChange}`}
-                                  </span>
-                                ) : (
-                                  <span className="change-none">—</span>
-                                )}
-                              </td>
-                            </tr>
-                          ))}
+                          {(cfPredictions || predictions.predictions)
+                            .slice(0, 8)
+                            .map((pred, idx) => (
+                              <tr key={idx}>
+                                <td className="ip-cell">{pred.guard_ip}</td>
+                                <td>
+                                  {cfPredictions
+                                    ? pred.originalRank
+                                    : pred.rank}
+                                </td>
+                                <td>{pred.rank}</td>
+                                <td>
+                                  {cfPredictions && pred.rankChange !== 0 ? (
+                                    <span
+                                      className={
+                                        pred.rankChange < 0
+                                          ? 'change-up'
+                                          : 'change-down'
+                                      }
+                                    >
+                                      {pred.rankChange < 0
+                                        ? `↑ ${Math.abs(pred.rankChange)}`
+                                        : `↓ ${pred.rankChange}`}
+                                    </span>
+                                  ) : (
+                                    <span className="change-none">–</span>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
                         </tbody>
                       </table>
-                      
+
                       {!cfPredictions && (
                         <div className="cf-placeholder">
-                          <p>Adjust parameters above and click "Re-Analyze Predictions" to see rank changes</p>
+                          <p>
+                            Adjust parameters and click "Re-analyze with new
+                            parameters" to see rank changes.
+                          </p>
                         </div>
                       )}
                     </div>
@@ -744,18 +799,79 @@ Report ID: ${Date.now()}
                 </>
               ) : (
                 <div className="empty-state">
-                  <h2>🎛️ Counterfactual Analysis</h2>
-                  <p>Make a prediction first to analyze scenarios</p>
-                  <button className="btn-primary" onClick={() => setActiveTab('prediction')}>Go to Prediction</button>
+                  <h2>Counterfactual Analysis</h2>
+                  <p>Run a prediction first to analyze scenarios.</p>
+                  <button
+                    className="btn-primary"
+                    onClick={() => setActiveTab('prediction')}
+                  >
+                    Go to Prediction
+                  </button>
                 </div>
               )}
             </div>
           )}
+
+          {/* Network Status Tab */}
+          {activeTab === 'network' && (
+            <div className="network-status-content">
+              <div className="content-header">
+                <h2>🌐 Live TOR Network Status</h2>
+                <p>Real-time monitoring of TOR network nodes and relays</p>
+              </div>
+
+              <div className="network-status-grid">
+                <div className="network-status-card">
+                  <div className="network-status-header">
+                    <span className="status-badge online">NETWORK: {networkData.status}</span>
+                    <span className="status-badge update-time">UPDATED: {networkData.lastUpdate}</span>
+                  </div>
+
+                  <div className="network-stats-large">
+                    <div className="network-stat-item">
+                      <div className="stat-icon">🛡️</div>
+                      <div className="stat-info">
+                        <div className="stat-value-large">{networkData.guardNodes.toLocaleString()}</div>
+                        <div className="stat-label-large">Guard Nodes Online</div>
+                      </div>
+                    </div>
+
+                    <div className="network-stat-item">
+                      <div className="stat-icon">🚪</div>
+                      <div className="stat-info">
+                        <div className="stat-value-large">{networkData.exitNodes.toLocaleString()}</div>
+                        <div className="stat-label-large">Exit Nodes Online</div>
+                      </div>
+                    </div>
+
+                    <div className="network-stat-item">
+                      <div className="stat-icon">🌐</div>
+                      <div className="stat-info">
+                        <div className="stat-value-large">{networkData.totalRelays.toLocaleString()}</div>
+                        <div className="stat-label-large">Total Relays</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="network-footer-info">
+                    <p className="data-source">📡 Data source: onionoo.torproject.org</p>
+                    <p className="refresh-info">Auto-refreshes every 30 seconds</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Phase 2 Roadmap */}
+          {activeTab === 'phase2' && <Phase2Roadmap />}
         </main>
       </div>
 
       <footer className="App-footer">
-        <p>© 2025 Tamil Nadu Police Cyber Crime Wing. All rights reserved. | Official Use Only</p>
+        <p>
+          © 2025 Tamil Nadu Police Cyber Crime Wing. All rights reserved. |
+          Official Use Only
+        </p>
       </footer>
     </div>
   );

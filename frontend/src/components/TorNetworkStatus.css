@@ -1,0 +1,193 @@
+/* TorNetworkStatus.css - Purple Theme */
+
+.tor-network-status {
+  width: 100%;
+  background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%);
+  border-bottom: 1px solid rgba(139, 92, 246, 0.3);
+  padding: 12px 0;
+  margin: 0;
+}
+
+.network-status-container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 30px;
+}
+
+.network-status-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.network-status-header h3 {
+  margin: 0;
+  font-size: 1rem;
+  color: #a78bfa;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.network-status-badges {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.status-badge {
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+.status-badge.online {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.status-badge.update-time {
+  background: rgba(167, 139, 250, 0.15);
+  color: #a78bfa;
+  border: 1px solid rgba(167, 139, 250, 0.3);
+}
+
+.network-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  margin-bottom: 8px;
+}
+
+.stat-item {
+  text-align: center;
+  padding: 12px;
+  background: rgba(30, 27, 75, 0.6);
+  border-radius: 8px;
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  transition: all 0.2s ease;
+}
+
+.stat-item:hover {
+  border-color: #a78bfa;
+  background: rgba(30, 27, 75, 0.9);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.2);
+}
+
+.stat-value {
+  font-size: 1.8rem;
+  font-weight: bold;
+  color: #ffffff;
+  margin-bottom: 4px;
+  line-height: 1;
+}
+
+.stat-label {
+  font-size: 0.8rem;
+  color: #cbd5e1;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.network-footer {
+  text-align: center;
+  margin-top: 8px;
+}
+
+.data-source {
+  font-size: 0.7rem;
+  color: #9ca3af;
+  font-style: italic;
+}
+
+/* Responsive Design */
+@media (max-width: 1024px) {
+  .network-stats {
+    gap: 15px;
+  }
+  
+  .stat-value {
+    font-size: 1.5rem;
+  }
+  
+  .stat-label {
+    font-size: 0.75rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .tor-network-status {
+    padding: 10px 0;
+  }
+  
+  .network-status-container {
+    padding: 0 20px;
+  }
+  
+  .network-status-header {
+    flex-direction: column;
+    align-items: flex-start;
+    margin-bottom: 10px;
+  }
+  
+  .network-status-header h3 {
+    font-size: 0.9rem;
+  }
+  
+  .network-stats {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  
+  .stat-item {
+    padding: 10px;
+  }
+  
+  .stat-value {
+    font-size: 1.6rem;
+  }
+  
+  .network-status-badges {
+    width: 100%;
+    justify-content: flex-start;
+  }
+  
+  .status-badge {
+    font-size: 0.7rem;
+    padding: 4px 10px;
+  }
+}
+
+@media (max-width: 480px) {
+  .network-status-container {
+    padding: 0 15px;
+  }
+  
+  .network-status-header h3 {
+    font-size: 0.85rem;
+  }
+  
+  .stat-value {
+    font-size: 1.4rem;
+  }
+  
+  .stat-label {
+    font-size: 0.7rem;
+  }
+  
+  .network-footer {
+    margin-top: 5px;
+  }
+  
+  .data-source {
+    font-size: 0.65rem;
+  }
+}
