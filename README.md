@@ -388,8 +388,7 @@ Not licensed for commercial use or unauthorized surveillance.
 
 **Built for Tamil Nadu Police Cyber Crime Wing Hackathon 2025**
 
-For questions or collaboration: hamsavardan.m2023@vitstudent.ac.in
-
+For questions or collaboration: k.divakar1626@gmail.com
 ---
 
 ## 📈 Future Enhancements
@@ -417,7 +416,7 @@ For questions or collaboration: hamsavardan.m2023@vitstudent.ac.in
 
 For issues, questions, or feature requests:
 - **GitHub Issues:** https://github.com/YOUR_USERNAME/tor-guard-predictor/issues
-- **Email:** hamsavardan.m2023@vitstudent.ac.in
+- **Email:** *k.divakar1626@gmail.com*
 
 ---
 
